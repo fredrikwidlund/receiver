@@ -1,111 +1,119 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
+#include <unistd.h>
 #include <netdb.h>
+#include <poll.h>
 #include <sys/queue.h>
 #include <err.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <dynamic.h>
 #include <reactor.h>
 
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-
 #include "receiver.h"
 
-enum receiver_stream_event
+static void receiver_error(receiver *r)
 {
-  RECEIVER_STREAM_STATE_ERROR,
-  RECEIVER_STREAM_STATE_START,
-  RECEIVER_STREAM_STATE_OPEN
-};
+  r->state = RECEIVER_STATE_ERROR;
+  reactor_user_dispatch(&r->user, RECEIVER_EVENT_ERROR, NULL);
+}
 
-typedef struct receiver_stream receiver_stream;
-struct receiver_stream
+static void receiver_read_rtp(receiver *r, char *data, size_t n)
 {
-  int              state;
-  receiver        *receiver;
-  char            *url;
-  AVFormatContext *format;
-  AVPacket         packet;
-};
+  receiver_rtp *rtp;
+  int i;
 
-static void receiver_stream_update(receiver_stream *s)
-{
-  int e;
-
-  if (s->state == RECEIVER_STREAM_STATE_START)
+  if (n < sizeof *rtp)
     {
-      e = avformat_find_stream_info(s->format, NULL);
-      if (e != 0)
-        {
-          s->state = RECEIVER_STREAM_STATE_ERROR;
-          return;
-        }
-
-      s->state = RECEIVER_STREAM_STATE_OPEN;
-    }
-
-  e = av_read_frame(s->format, &s->packet);
-  if (e != 0)
-    {
-      printf("%s\n", av_err2str(e));
-
-      s->state = RECEIVER_STREAM_STATE_ERROR;
+      receiver_error(r);
       return;
     }
+  rtp = (receiver_rtp *) data;
+  rtp->seq = ntohs(rtp->seq);
+  rtp->timestamp = ntohl(rtp->timestamp);
+  (void) fprintf(stderr, "seq %d, version %d, padding %d, extension %d, payload type %d, csrc count %d, timestamp %u, ssrc %u\n",
+                 rtp->seq, rtp->version, rtp->padding, rtp->extension, rtp->payload_type, rtp->csrc_count, rtp->timestamp, rtp->ssrc);
 }
 
-static void receiver_stream_event(void *state, int type, void *data)
+static void receiver_event(void *state, int type, void *data)
 {
-  receiver_stream *s = state;
+  receiver *r = state;
+  struct pollfd *pollfd;
+  char buffer[65536];
+  ssize_t n;
 
-  (void) data;
   switch (type)
     {
-    case REACTOR_POOL_EVENT_CALL:
-      receiver_stream_update(s);
+    case REACTOR_CORE_EVENT_FD:
+      pollfd = data;
+      if (pollfd->revents != POLLIN)
+        {
+          receiver_error(r);
+          break;
+        }
+      n = read(r->socket, buffer, sizeof buffer);
+      if (n <= 0)
+        receiver_error(r);
+      else
+        receiver_read_rtp(r, buffer, n);
       break;
-    case REACTOR_POOL_EVENT_RETURN:
-      if (s->state != RECEIVER_STREAM_STATE_OPEN)
-        break;
-      printf("%p frame %ld\n", (void *) s, s->packet.pts);
-      av_packet_unref(&s->packet);
-      reactor_core_job_register(receiver_stream_event, s);
+    default:
+      receiver_error(r);
       break;
     }
 }
 
-static void receiver_stream_read(receiver_stream *s)
+static void receiver_connect(receiver *r)
 {
-  reactor_core_job_register(receiver_stream_event, s);
+  struct sockaddr_in sin;
+  int e, port;
+  in_addr_t addr;
+
+  addr = inet_addr(r->host);
+  port = strtoul(r->port, NULL, 10);
+
+  r->socket = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
+  if (r->socket == -1)
+    {
+      receiver_error(r);
+      return;
+    }
+
+  sin = (struct sockaddr_in) {
+    .sin_family = AF_INET,
+    .sin_addr.s_addr = htonl(INADDR_ANY),
+    .sin_port = htons(port)
+  };
+  e = bind(r->socket, (struct sockaddr *) &sin, sizeof sin);
+  if (e == -1)
+    {
+      receiver_error(r);
+      return;
+    }
+
+  e = setsockopt(r->socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                 (struct ip_mreq[]){{.imr_multiaddr.s_addr = addr, .imr_interface.s_addr = htonl(INADDR_ANY)}},
+                 sizeof(struct ip_mreq));
+  if (e == -1)
+    {
+      receiver_error(r);
+      return;
+    }
+
+  reactor_core_fd_register(r->socket, receiver_event, r, POLLIN);
 }
 
-int receiver_construct(receiver *r)
+void receiver_open(receiver *r, reactor_user_callback *callback, void *state, char *host, char *port)
 {
   *r = (receiver) {0};
-
-  av_register_all();
-  avformat_network_init();
-  av_log_set_level(AV_LOG_QUIET);
-
-  return 0;
-}
-
-int receiver_add(receiver *r, char *url)
-{
-  receiver_stream *s;
-  int e;
-
-  s = calloc(1, sizeof *s);
-  s->state = RECEIVER_STREAM_STATE_START;
-  s->url = strdup(url);
-  s->receiver = r;
-
-  e = avformat_open_input(&s->format, s->url, NULL, NULL);
-  if (e != 0)
-    return -1;
-
-  receiver_stream_read(s);
-  return 0;
+  r->socket = -1;
+  r->state = RECEIVER_STATE_OPEN;
+  r->host = strdup(host);
+  r->port = strdup(port);
+  reactor_user_construct(&r->user, callback, state);
+  receiver_connect(r);
 }
