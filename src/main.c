@@ -8,6 +8,8 @@
 #include <dynamic.h>
 #include <reactor.h>
 
+#include "ts.h"
+#include "rtp.h"
 #include "receiver.h"
 
 typedef struct app app;
@@ -26,10 +28,17 @@ static void usage(void)
 
 static void event(void *state, int type, void *data)
 {
+  char *error;
+
   (void) state;
-  (void) type;
-  (void) data;
-  (void) fprintf(stderr, "event\n");
+  switch (type)
+    {
+    case RECEIVER_EVENT_ERROR:
+      error = data;
+      (void) fprintf(stderr, "error: %s\n", error);
+      exit(1);
+      break;
+    }
 }
 
 int main(int argc, char **argv)
@@ -45,19 +54,6 @@ int main(int argc, char **argv)
 
   reactor_core_construct();
   receiver_open(&app.receiver, event, &app, host, port);
-
-  /*
-  receiver_construct(&r);
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  receiver_add(&r, "udp://236.0.0.1:2000");
-  */
   e = reactor_core_run();
   if (e == -1)
     err(1, "reactor_core_run");

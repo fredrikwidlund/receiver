@@ -6,6 +6,7 @@
 #include <netdb.h>
 #include <poll.h>
 #include <sys/queue.h>
+#include <errno.h>
 #include <err.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -14,55 +15,38 @@
 #include <dynamic.h>
 #include <reactor.h>
 
+#include "ts.h"
+#include "rtp.h"
 #include "receiver.h"
 
-static void receiver_error(receiver *r)
+static void receiver_error(receiver *r, char *error)
 {
   r->state = RECEIVER_STATE_ERROR;
-  reactor_user_dispatch(&r->user, RECEIVER_EVENT_ERROR, NULL);
-}
-
-static void receiver_read_rtp(receiver *r, char *data, size_t n)
-{
-  receiver_rtp *rtp;
-  int i;
-
-  if (n < sizeof *rtp)
-    {
-      receiver_error(r);
-      return;
-    }
-  rtp = (receiver_rtp *) data;
-  rtp->seq = ntohs(rtp->seq);
-  rtp->timestamp = ntohl(rtp->timestamp);
-  (void) fprintf(stderr, "seq %d, version %d, padding %d, extension %d, payload type %d, csrc count %d, timestamp %u, ssrc %u\n",
-                 rtp->seq, rtp->version, rtp->padding, rtp->extension, rtp->payload_type, rtp->csrc_count, rtp->timestamp, rtp->ssrc);
+  reactor_user_dispatch(&r->user, RECEIVER_EVENT_ERROR, error);
 }
 
 static void receiver_event(void *state, int type, void *data)
 {
   receiver *r = state;
-  struct pollfd *pollfd;
-  char buffer[65536];
+  uint8_t buffer[65536];
   ssize_t n;
+  int e;
 
   switch (type)
     {
-    case REACTOR_CORE_EVENT_FD:
-      pollfd = data;
-      if (pollfd->revents != POLLIN)
-        {
-          receiver_error(r);
-          break;
-        }
+    case REACTOR_CORE_FD_EVENT_READ:
       n = read(r->socket, buffer, sizeof buffer);
       if (n <= 0)
-        receiver_error(r);
-      else
-        receiver_read_rtp(r, buffer, n);
+        {
+          receiver_error(r, strerror(errno));
+          break;
+        }
+      e = rtp_frame(&r->rtp, buffer, n);
+      if (e == -1)
+        receiver_error(r, "invalid rtp frame");
       break;
     default:
-      receiver_error(r);
+      receiver_error(r, "unknown socket event");
       break;
     }
 }
@@ -79,7 +63,7 @@ static void receiver_connect(receiver *r)
   r->socket = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
   if (r->socket == -1)
     {
-      receiver_error(r);
+      receiver_error(r, strerror(errno));
       return;
     }
 
@@ -91,7 +75,7 @@ static void receiver_connect(receiver *r)
   e = bind(r->socket, (struct sockaddr *) &sin, sizeof sin);
   if (e == -1)
     {
-      receiver_error(r);
+      receiver_error(r, strerror(errno));
       return;
     }
 
@@ -100,7 +84,7 @@ static void receiver_connect(receiver *r)
                  sizeof(struct ip_mreq));
   if (e == -1)
     {
-      receiver_error(r);
+      receiver_error(r, strerror(errno));
       return;
     }
 
@@ -115,5 +99,6 @@ void receiver_open(receiver *r, reactor_user_callback *callback, void *state, ch
   r->host = strdup(host);
   r->port = strdup(port);
   reactor_user_construct(&r->user, callback, state);
+  rtp_init(&r->rtp);
   receiver_connect(r);
 }
