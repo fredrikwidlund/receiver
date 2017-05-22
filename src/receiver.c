@@ -16,7 +16,8 @@
 #include <reactor.h>
 
 #include "ts.h"
-#include "rtp.h"
+#include "reactor_udp.h"
+#include "reactor_rtp.h"
 #include "receiver.h"
 
 static void receiver_error(receiver *r, char *error)
@@ -25,70 +26,34 @@ static void receiver_error(receiver *r, char *error)
   reactor_user_dispatch(&r->user, RECEIVER_EVENT_ERROR, error);
 }
 
-static void receiver_event(void *state, int type, void *data)
+static void receiver_rtp_event(void *state, int type, void *data)
 {
   receiver *r = state;
-  uint8_t buffer[65536];
-  ssize_t n;
-  int e;
 
   switch (type)
     {
-    case REACTOR_CORE_FD_EVENT_READ:
-      n = read(r->socket, buffer, sizeof buffer);
-      if (n <= 0)
-        {
-          receiver_error(r, strerror(errno));
-          break;
-        }
-      e = rtp_frame(&r->rtp, buffer, n);
-      if (e == -1)
-        receiver_error(r, "invalid rtp frame");
+    case REACTOR_RTP_EVENT_MP2T:
+      printf("packet\n");
       break;
-    default:
-      receiver_error(r, "unknown socket event");
+    case REACTOR_RTP_EVENT_ERROR:
+      receiver_error(r, "rtp error");
       break;
     }
 }
 
-static void receiver_connect(receiver *r)
+static void receiver_udp_event(void *state, int type, void *data)
 {
-  struct sockaddr_in sin;
-  int e, port;
-  in_addr_t addr;
+  receiver *r = state;
 
-  addr = inet_addr(r->host);
-  port = strtoul(r->port, NULL, 10);
-
-  r->socket = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
-  if (r->socket == -1)
+  switch (type)
     {
-      receiver_error(r, strerror(errno));
-      return;
+    case REACTOR_UDP_EVENT_READ:
+      reactor_rtp_data(&r->rtp, data);
+      break;
+    case REACTOR_UDP_EVENT_ERROR:
+      receiver_error(r, "udp error");
+      break;
     }
-
-  sin = (struct sockaddr_in) {
-    .sin_family = AF_INET,
-    .sin_addr.s_addr = htonl(INADDR_ANY),
-    .sin_port = htons(port)
-  };
-  e = bind(r->socket, (struct sockaddr *) &sin, sizeof sin);
-  if (e == -1)
-    {
-      receiver_error(r, strerror(errno));
-      return;
-    }
-
-  e = setsockopt(r->socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-                 (struct ip_mreq[]){{.imr_multiaddr.s_addr = addr, .imr_interface.s_addr = htonl(INADDR_ANY)}},
-                 sizeof(struct ip_mreq));
-  if (e == -1)
-    {
-      receiver_error(r, strerror(errno));
-      return;
-    }
-
-  reactor_core_fd_register(r->socket, receiver_event, r, POLLIN);
 }
 
 void receiver_open(receiver *r, reactor_user_callback *callback, void *state, char *host, char *port)
@@ -99,6 +64,7 @@ void receiver_open(receiver *r, reactor_user_callback *callback, void *state, ch
   r->host = strdup(host);
   r->port = strdup(port);
   reactor_user_construct(&r->user, callback, state);
-  rtp_init(&r->rtp);
-  receiver_connect(r);
+
+  reactor_udp_open(&r->udp, receiver_udp_event, r, host, port, REACTOR_UDP_FLAG_SERVER);
+  reactor_rtp_open(&r->rtp, receiver_rtp_event, r);
 }

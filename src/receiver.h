@@ -20,7 +20,8 @@ struct receiver
   char            *host;
   char            *port;
   int              socket;
-  rtp              rtp;
+  reactor_udp      udp;
+  reactor_rtp      rtp;
 };
 
 void receiver_open(receiver *, reactor_user_callback *, void *, char *, char *);

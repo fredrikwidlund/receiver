@@ -10,6 +10,8 @@
 
 #include "ts.h"
 #include "rtp.h"
+#include "reactor_udp.h"
+#include "reactor_rtp.h"
 #include "receiver.h"
 
 typedef struct app app;
