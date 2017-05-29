@@ -1,53 +1,62 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-#include <dynamic.h>
+#include <sys/param.h>
 
 #include "bits.h"
 
-void bits_construct(bits *b)
+void bits_construct(bits *b, uint8_t *data, size_t size)
 {
-  buffer_construct(&b->data);
+  b->data = data;
+  b->size = 8 * size;
+  b->valid = 1;
 }
 
-void bits_add_bytes(bits *b, const char *data, size_t size)
+uint64_t bits_take(bits *b, int count)
 {
-  buffer_insert(&b->data, buffer_size(&b->data), (char *) data, size);
-}
+  uint64_t value;
+  int n;
 
-uint64_t bits_take(bits *b, int n)
-{
-  uint8_t *data = buffer_data(&b->data);
-  size_t size = buffer_size(&b->data);
-  uint64_t c = b->consumed, v = 0;
-  int p, f;
-
-  printf("n %d\n", n);
-  while (n)
+  if (count > b->size)
     {
-      f =c / 8;
-      p = 8 - (c % 8);
-      if (n >= p)
-        {
-          v <<= p;
-          v += data[f] >> (8 - p);
-          c += p;
-          n -= p;
-        }
-      else
-        {
-          v <<= n;
-          v += data[f] >> (8 - n);
-          c += n;
-          n -= n;
-        }
+      b->valid = 0;
+      return 0;
     }
-  printf("%08x\n", v);
-  return v;
+
+  value = 0;
+  while (count)
+    {
+      n = MIN(count, (b->size - 1) % 8 + 1);
+      value <<= n;
+      value += b->data[0] >> (8 - n);
+      b->data[0] <<= n;
+
+      count -= n;
+      b->size -= n;
+      if (b->size % 8 == 0)
+        b->data ++;
+    }
+
+  return value;
 }
 
-int bits_invalid(bits *b)
+uint8_t *bits_take_bytes(bits *b, size_t count)
 {
-  return 0;
+  uint8_t *bytes;
+
+  if (b->size % 8 != 0 || count * 8 > b->size)
+    {
+      b->valid = 0;
+      return NULL;
+    }
+
+  bytes = b->data;
+  b->data += count;
+  b->size -= count * 8;
+  return bytes;
+}
+
+int bits_valid(bits *b)
+{
+  return b->valid;
 }

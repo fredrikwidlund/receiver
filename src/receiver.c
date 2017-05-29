@@ -29,14 +29,19 @@ static void receiver_error(receiver *r, char *error)
 static void receiver_rtp_event(void *state, int type, void *data)
 {
   receiver *r = state;
+  reactor_rtp_frame *f;
 
   switch (type)
     {
-    case REACTOR_RTP_EVENT_MP2T:
-      printf("packet\n");
+    case REACTOR_RTP_EVENT_FRAME:
+      f = data;
+      printf("packet %u %u\n", f->seq, f->timestamp);
       break;
     case REACTOR_RTP_EVENT_ERROR:
       receiver_error(r, "rtp error");
+      break;
+    default:
+      (void) fprintf(stderr, "[warning %d]\n", type);
       break;
     }
 }

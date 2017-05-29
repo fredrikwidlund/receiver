@@ -4,13 +4,14 @@
 typedef struct bits bits;
 struct bits
 {
-  buffer  data;
-  uint8_t consumed;
+  uint8_t *data;
+  int      size;
+  int      valid;
 };
 
-void     bits_construct(bits *);
-void     bits_add_bytes(bits *, const char *, size_t);
-uint64_t bits_take(bits *, int);
-int      bits_invalid(bits *);
+void      bits_construct(bits *, uint8_t *, size_t);
+uint64_t  bits_take(bits *, int);
+int       bits_valid(bits *);
+uint8_t  *bits_take_bytes(bits *, size_t);
 
 #endif /* BITS_H_INCLUDED */

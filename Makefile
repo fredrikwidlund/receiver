@@ -6,5 +6,8 @@ LDFLAGS = -lreactor -ldynamic -lavformat -lavcodec -lavdevice -lavutil -lm
 $(PROG): $(OBJS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
+test: src/bits.o src/test.o
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
+
 clean:
 	rm -f $(PROG) $(OBJS)
