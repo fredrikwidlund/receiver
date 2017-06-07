@@ -10,7 +10,7 @@
 #include <dynamic.h>
 #include <reactor.h>
 
-#include "bits.h"
+#include "bitstream.h"
 #include "reactor_rtp.h"
 
 static void reactor_rtp_error(reactor_rtp *rtp)
@@ -63,10 +63,9 @@ static void reactor_rtp_queue(reactor_rtp *rtp, reactor_rtp_frame *frame)
       reactor_rtp_drop(rtp, frame);
       return;
     }
-  
+
   printf("queue %p %p\n", (void *) rtp, (void *) frame);
   /*
-      
       TAILQ_FOREACH(i, &rtp->queued_frames, entries)
         {
           if (f->seq == i->seq)
@@ -85,8 +84,6 @@ static void reactor_rtp_queue(reactor_rtp *rtp, reactor_rtp_frame *frame)
           n = i->seq;
         }
       TAILQ_INSERT_TAIL(&rtp->queued_frame, f, entries);
-      
-      
     }
   */
 }
@@ -138,57 +135,50 @@ void reactor_rtp_open(reactor_rtp *rtp, reactor_user_callback *callback, void *s
   reactor_user_construct(&rtp->user, callback, state);
 }
 
-void reactor_rtp_data(reactor_rtp *rtp, reactor_memory *m)
+void reactor_rtp_data(reactor_rtp *rtp, reactor_memory *data)
 {
-  bits bits;
-  uint8_t version, padding, extension, csrc_count, marker, payload_type, *data;
+  bitstream s;
+  uint8_t v, p, x, cc, m, type;
+  const uint8_t *b;
   uint16_t seq;
-  uint32_t timestamp, ssrc;
+  uint32_t ts, ssrc;
   size_t size;
 
-  bits_construct(&bits, (uint8_t *) m->base, m->size);
-  version = bits_take(&bits, 2);
-  padding = bits_take(&bits, 1);
-  extension = bits_take(&bits, 1);
-  csrc_count = bits_take(&bits, 4);
-  marker = bits_take(&bits, 1);
-  payload_type = bits_take(&bits, 7);
-  seq = bits_take(&bits, 16);
-  timestamp = bits_take(&bits, 32);
-  ssrc = bits_take(&bits, 32);
+  bitstream_construct(&s, reactor_memory_base(*data), 8 * reactor_memory_size(*data));
+  v = bitstream_consume_bits(&s, 2);
+  p = bitstream_consume_bits(&s, 1);
+  x = bitstream_consume_bits(&s, 1);
+  cc = bitstream_consume_bits(&s, 4);
+  m = bitstream_consume_bits(&s, 1);
+  type = bitstream_consume_bits(&s, 7);
+  seq = bitstream_consume_bits(&s, 16);
+  ts = bitstream_consume_bits(&s, 32);
+  ssrc = bitstream_consume_bits(&s, 32);
 
-  for (; csrc_count; csrc_count --)
-    (void) bits_take(&bits, 32);
+  for (; cc; cc --)
+    (void) bitstream_consume_bits(&s, 32);
 
-  if (extension)
+  if (x)
     {
-      (void) bits_take(&bits, 16);
-      (void) bits_take_bytes(&bits, bits_take(&bits, 16));
+      (void) bitstream_consume_bits(&s, 16);
+      (void) bitstream_consume_bytes(&s, bitstream_consume_bits(&s, 16));
     }
 
-  if (version != 2 || !bits_valid(&bits) || bits.size % 8 != 0)
+  if (p)
+    bitstream_discard_bits(&s, 8 * s.data[s.size - 1]);
+
+  size = bitstream_bits_left(&s) / 8;
+  b = bitstream_consume_bytes(&s, size);
+  if (v != 2 || bitstream_bits_left(&s) || !bitstream_valid(&s))
     {
       reactor_rtp_error(rtp);
       return;
     }
 
-  data = bits.data;
-  size = bits.size / 8;
-
-  if (padding)
-    {
-      if (!size || size < data[size - 1])
-        {
-          reactor_rtp_error(rtp);
-          return;
-        }
-      size -= data[size - 1];
-    }
-
   reactor_rtp_add(rtp, (reactor_rtp_frame[]) {
       {
-        .type = payload_type, .marker = marker, .seq = seq,
-        .timestamp = timestamp, .ssrc = ssrc, .data = data, .size = size
+        .type = type, .marker = m, .seq = seq,
+        .timestamp = ts, .ssrc = ssrc, .data = (uint8_t *) b, .size = size
       }
     });
 }

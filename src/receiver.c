@@ -35,7 +35,7 @@ static void receiver_rtp_event(void *state, int type, void *data)
     {
     case REACTOR_RTP_EVENT_FRAME:
       f = data;
-      printf("packet %u %u\n", f->seq, f->timestamp);
+      printf("packet seq %u, ts %u, type %u, size %lu\n", f->seq, f->timestamp, f->type, f->size);
       break;
     case REACTOR_RTP_EVENT_ERROR:
       receiver_error(r, "rtp error");

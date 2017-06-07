@@ -44,7 +44,6 @@ struct reactor_rtp_frame
   TAILQ_ENTRY(reactor_rtp_frame)  entries;
 };
 
-
 void reactor_rtp_open(reactor_rtp *, reactor_user_callback *, void *);
 void reactor_rtp_data(reactor_rtp *, reactor_memory *);
 
