@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/queue.h>
 #include <err.h>
 
 #include <dynamic.h>
@@ -41,12 +42,38 @@ int read_file(char *path, void **data, size_t *size)
   return 0;
 }
 
+int write_file(char *path, void *data, size_t size)
+{
+  int fd;
+  ssize_t n;
+
+  fd = open(path, O_CREAT | O_WRONLY, 0644);
+  if (fd == -1)
+    return -1;
+
+  while (size)
+    {
+      n = write(fd, data, size);
+      if (n == -1)
+        {
+          (void) close(fd);
+          return -1;
+        }
+      data = (char *) data + n;
+      size -= n;
+    }
+  (void) close(fd);
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   ts_demux d;
+  ts_demux_stream *s;
   void *data;
   size_t size;
-  int e;
+  int e, i;
+  char name[256];
 
   e = read_file(argv[1], &data, &size);
   if (e == -1)
@@ -56,6 +83,20 @@ int main(int argc, char **argv)
   e = ts_demux_write(&d, data, size);
   if (e == -1)
     errx(1, "ts_demux_write");
+  ts_demux_write_eof(&d);
+
+  for (i = 0; i < ts_demux_streams_size(&d); i ++)
+    {
+      s = ts_demux_streams_index(&d, i);
+      ts_demux_stream_debug(s);
+
+      /*
+      (void) snprintf(name, sizeof name, "pid-%d.raw", s->pid);
+      e = write_file(name, ts_demux_stream_data(s), ts_demux_stream_size(s));
+      if (e == -1)
+        err(1, "write_file");
+      */
+    }
 
   free(data);
 }
