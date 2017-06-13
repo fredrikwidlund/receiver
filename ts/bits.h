@@ -17,5 +17,6 @@ uint64_t bits_read(bits *, size_t);
 void     bits_read_data(bits *, uint8_t **, size_t);
 void     bits_get_data(bits *, uint8_t **, size_t *);
 int      bits_valid(bits *);
+size_t   bits_size(bits *);
 
 #endif /* BITS_H_INCLUDED */

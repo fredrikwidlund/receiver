@@ -28,7 +28,7 @@ void ts_demux_stream_debug(ts_demux_stream *s)
 
 int ts_demux_stream_write(ts_demux_stream *s, int cc, int rai, int pusi, uint8_t *data, size_t size)
 {
-  ts_demux_stream_unit *u, *u2;
+  ts_demux_stream_unit *u;
 
   if (!s->empty && ((s->cc + 1) & 0x0f ) != cc)
     return -1;
@@ -43,13 +43,11 @@ int ts_demux_stream_write(ts_demux_stream *s, int cc, int rai, int pusi, uint8_t
       if (pusi && u && !u->complete)
         u->complete = 1;
       u = calloc(1, sizeof *u);
-      printf("%d -> %p\n", s->pid, u);
       if (!u)
         return -1;
       u->rai = rai == 1 ? 1 : 0;
       buffer_construct(&u->data);
       TAILQ_INSERT_TAIL(&s->units, u, entries);
-      printf("pid %d last %p\n", s->pid, TAILQ_LAST(&s->units, ts_demux_stream_units_head));
     }
   buffer_insert(&u->data, buffer_size(&u->data), data, size);
 
@@ -60,7 +58,6 @@ void ts_demux_stream_write_eof(ts_demux_stream *s)
 {
   ts_demux_stream_unit *u;
 
-  printf("pid %d last %p\n", s->pid, TAILQ_LAST(&s->units, ts_demux_stream_units_head));
   u = TAILQ_LAST(&s->units, ts_demux_stream_units_head);
   if (u && !u->complete)
     u->complete = 1;
@@ -68,7 +65,56 @@ void ts_demux_stream_write_eof(ts_demux_stream *s)
 
 void ts_demux_construct(ts_demux *d)
 {
-  vector_construct(&d->streams, sizeof (ts_demux_stream));
+  d->flags = 0;
+  vector_construct(&d->streams, sizeof (ts_demux_stream *));
+}
+
+int ts_demux_parse_pat(ts_demux *d)
+{
+  ts_demux_stream *s;
+  ts_demux_stream_unit *u;
+  bits bits;
+  uint8_t len, tid, ssi, pb, v, current;
+  uint16_t s_len, tie;
+
+  if (d->flags & TS_DEMUX_FLAG_PAT)
+    return 0;
+
+  s = ts_demux_streams_lookup(d, 0, 0);
+  if (!s)
+    return 0;
+
+  u = TAILQ_FIRST(&s->units);
+  if (!u)
+    return 0;
+
+  bits_set_data(&bits, buffer_data(&u->data), buffer_size(&u->data));
+  len = bits_read(&bits, 8);
+  bits_read_data(&bits, NULL, len);
+  while (bits_valid(&bits) && bits_size(&bits))
+    {
+      tid = bits_read(&bits, 8);
+      if (tid == 0xff)
+        break;
+      ssi = bits_read(&bits, 1);
+      pb = bits_read(&bits, 1);
+      if (!ssi || pb)
+        return -1;
+      (void) bits_read(&bits, 2);
+      (void) bits_read(&bits, 2);
+      s_len = bits_read(&bits, 10);
+
+      tie = bits_read(&bits, 16);
+      (void) bits_read(&bits, 2);
+      v = bits_read(&bits, 5);
+      current = bits_read(&bits, 5);
+      s_len -= 2;
+      printf("tid %u, len %u, tie %u, version %u\n", tid, s_len, tie, v);
+
+      bits_read_data(&bits, NULL, s_len);
+    }
+
+  return 0;
 }
 
 int ts_demux_parse(ts_demux *d, uint8_t *data, size_t size)
@@ -116,15 +162,19 @@ int ts_demux_parse(ts_demux *d, uint8_t *data, size_t size)
   if (!bits_valid(&s))
     return -1;
 
+  (void) tp; (void) cc; (void) pcr; (void) has_pcr; (void) tei; (void) tsc; (void) sync;
   /*
   printf("pid %u, pusi %u, tp %d, cc %u, rai %d, size %lu\n", pid, pusi, tp, cc, rai, size);
   if (has_pcr)
     printf("pid %u, pcr %f\n", pid, pcr);
   */
 
-  e = ts_demux_stream_write(ts_demux_streams_lookup(d, pid), cc, rai, pusi, data, size);
+  e = ts_demux_stream_write(ts_demux_streams_lookup(d, pid, 1), cc, rai, pusi, data, size);
   if (e == -1)
     return -1;
+
+  if (pid == 0)
+    return ts_demux_parse_pat(d);
 
   return 0;
 }
@@ -164,22 +214,30 @@ ts_demux_stream *ts_demux_streams_index(ts_demux *d, size_t i)
 {
   if (i >= vector_size(&d->streams))
     return NULL;
-  return vector_at(&d->streams, i);
+  return *(ts_demux_stream **) vector_at(&d->streams, i);
 }
 
-ts_demux_stream *ts_demux_streams_lookup(ts_demux *d, int pid)
+ts_demux_stream *ts_demux_streams_lookup(ts_demux *d, int pid, int add)
 {
-  ts_demux_stream *s = vector_data(&d->streams), *last = vector_back(&d->streams);
+  ts_demux_stream *s;
+  size_t i;
 
-  for (; s && s <= last; s ++)
-    if (s->pid == pid)
-      return s;
+  for (i = 0; i < vector_size(&d->streams); i ++)
+    {
+      s = ts_demux_streams_index(d, i);
+      if (s->pid == pid)
+        return s;
+    }
 
-  vector_push_back(&d->streams, (ts_demux_stream []){{0}});
-  s = vector_back(&d->streams);
+  if (!add)
+    return NULL;
+
+  s = calloc(1, sizeof *s);
   s->type = pid ? TS_DEMUX_STREAM_TYPE_UNKNOWN : TS_DEMUX_STREAM_TYPE_PAT;
   s->empty = 1;
   s->pid = pid;
   TAILQ_INIT(&s->units);
+  vector_push_back(&d->streams, &s);
+
   return s;
 }

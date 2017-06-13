@@ -5,6 +5,11 @@ typedef struct ts_demux_stream_unit ts_demux_stream_unit;
 typedef struct ts_demux_stream ts_demux_stream;
 typedef struct ts_demux ts_demux;
 
+enum ts_demux_flags
+{
+  TS_DEMUX_FLAG_PAT = 0x01
+};
+
 enum ts_demux_stream_type
 {
   TS_DEMUX_STREAM_TYPE_UNKNOWN = 0,
@@ -34,6 +39,7 @@ struct ts_demux_stream
 
 struct ts_demux
 {
+  int                                                          flags;
   vector                                                       streams;
 };
 
@@ -45,7 +51,7 @@ int              ts_demux_parse(ts_demux *, uint8_t *, size_t);
 int              ts_demux_write(ts_demux *, void *, size_t);
 void             ts_demux_write_eof(ts_demux *);
 size_t           ts_demux_streams_size(ts_demux *);
-ts_demux_stream *ts_demux_streams_lookup(ts_demux *, int);
+ts_demux_stream *ts_demux_streams_lookup(ts_demux *, int, int);
 ts_demux_stream *ts_demux_streams_index(ts_demux *, size_t);
 
 #endif /* TS_DEMUX_H_INCLUDED */

@@ -88,7 +88,9 @@ int main(int argc, char **argv)
   for (i = 0; i < ts_demux_streams_size(&d); i ++)
     {
       s = ts_demux_streams_index(&d, i);
-      ts_demux_stream_debug(s);
+      printf("pid %u\n", s->pid);
+      
+      //ts_demux_stream_debug(s);
 
       /*
       (void) snprintf(name, sizeof name, "pid-%d.raw", s->pid);
@@ -97,6 +99,7 @@ int main(int argc, char **argv)
         err(1, "write_file");
       */
     }
+
 
   free(data);
 }

@@ -80,3 +80,8 @@ int bits_valid(bits *b)
 {
   return b->valid;
 }
+
+size_t bits_size(bits *b)
+{
+  return b->size - b->offset;
+}
