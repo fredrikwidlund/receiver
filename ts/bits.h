@@ -18,5 +18,7 @@ void     bits_read_data(bits *, uint8_t **, size_t);
 void     bits_get_data(bits *, uint8_t **, size_t *);
 int      bits_valid(bits *);
 size_t   bits_size(bits *);
+bits     bits_subset(bits *, size_t, size_t);
+void     bits_flush(bits *);
 
 #endif /* BITS_H_INCLUDED */

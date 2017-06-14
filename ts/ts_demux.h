@@ -14,12 +14,14 @@ enum ts_demux_stream_type
 {
   TS_DEMUX_STREAM_TYPE_UNKNOWN = 0,
   TS_DEMUX_STREAM_TYPE_PAT,
-  TS_DEMUX_STREAM_TYPE_PMT
+  TS_DEMUX_STREAM_TYPE_PMT,
+  TS_DEMUX_STREAM_TYPE_ES
 };
 
 struct ts_demux_stream_unit
 {
   int                                                          complete;
+  int                                                          analyzed;
   int                                                          rai;
   int                                                          id;
   uint64_t                                                     pts;
@@ -33,6 +35,7 @@ struct ts_demux_stream
   int                                                          type;
   int                                                          empty;
   uint16_t                                                     pid;
+  uint8_t                                                      stream_type;
   uint8_t                                                      cc;
   TAILQ_HEAD(ts_demux_stream_units_head, ts_demux_stream_unit) units;
 };
@@ -46,6 +49,7 @@ struct ts_demux
 void             ts_demux_stream_debug(ts_demux_stream *);
 int              ts_demux_stream_write(ts_demux_stream *, int, int, int, uint8_t *, size_t);
 void             ts_demux_stream_write_eof(ts_demux_stream *);
+int              ts_demux_stream_analyze(ts_demux *, ts_demux_stream *);
 void             ts_demux_construct(ts_demux *);
 int              ts_demux_parse(ts_demux *, uint8_t *, size_t);
 int              ts_demux_write(ts_demux *, void *, size_t);

@@ -85,3 +85,22 @@ size_t bits_size(bits *b)
 {
   return b->size - b->offset;
 }
+
+bits bits_subset(bits *b, size_t offset, size_t size)
+{
+  bits subset = *b;
+
+  if (subset.offset + offset + size > subset.size)
+    bits_clear(&subset);
+  else
+    {
+      subset.offset += offset;
+      subset.size = subset.offset + size;
+    }
+  return subset;
+}
+
+void bits_flush(bits *b)
+{
+  b->offset = b->size;
+}

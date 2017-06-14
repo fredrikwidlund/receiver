@@ -88,7 +88,7 @@ int main(int argc, char **argv)
   for (i = 0; i < ts_demux_streams_size(&d); i ++)
     {
       s = ts_demux_streams_index(&d, i);
-      printf("pid %u\n", s->pid);
+      printf("pid %u, type %u, stream type %02x\n", s->pid, s->type, s->stream_type);
       
       //ts_demux_stream_debug(s);
 
