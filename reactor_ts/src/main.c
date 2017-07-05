@@ -19,9 +19,20 @@ struct state
 
 void event(void *data, int type, void *message)
 {
+  ts_demux_message *m;
+
   switch (type)
     {
     case TS_DEMUX_EVENT_ERROR:
+      break;
+    case TS_DEMUX_EVENT_MESSAGE:
+      m = message;
+      (void) fprintf(stderr, "pid %d, type %02x, id %02x", m->pid, m->type, m->id);
+      if (m->has_pts)
+        (void) fprintf(stderr, ", pts %lu", m->pts);
+      if (m->has_dts)
+        (void) fprintf(stderr, ", dts %lu", m->dts);
+      (void) fprintf(stderr, "\n");
       break;
     }
 }

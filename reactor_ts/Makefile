@@ -1,6 +1,6 @@
 PROG    = ts_demux
 OBJS    = src/main.o src/ts_demux.o src/bits.o
-CFLAGS  = -Wall -pedantic -g -Isrc
+CFLAGS  = -Wall -pedantic -g -Isrc -O3
 LDFLAGS = -lreactor -ldynamic
 
 $(PROG): $(OBJS)

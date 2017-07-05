@@ -24,7 +24,22 @@ enum ts_demux_stream_flags
 
 enum ts_demux_event
 {
-  TS_DEMUX_EVENT_ERROR
+  TS_DEMUX_EVENT_ERROR,
+  TS_DEMUX_EVENT_MESSAGE
+};
+
+typedef struct ts_demux_message ts_demux_message;
+struct ts_demux_message
+{
+  uint16_t  pid;
+  uint8_t   type;
+  uint8_t   id;
+  uint8_t   has_pts;
+  uint64_t  pts;
+  uint8_t   has_dts;
+  uint64_t  dts;
+  uint8_t  *data;
+  size_t    size;
 };
 
 typedef struct ts_demux_stream_unit ts_demux_stream_unit;

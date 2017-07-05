@@ -203,62 +203,67 @@ static uint64_t ts_demux_parse_pts(bits *b)
   return pts;
 }
 
-static int ts_demux_parse_pes(ts_demux *d, int type, bits *b)
+static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, bits *b)
 {
-  uint64_t pts, dts;
+  ts_demux_message message;
   uint32_t code;
   uint16_t len;
-  uint8_t id, marker, scrambling, priority, dai, has_pts, has_dts, has_crc, remains;
+  uint8_t marker, scrambling, dai, remains;
 
-  if (type != 0x0f && type != 0x1b)
-      return -1;
+  message.pid = stream->pid;
+  message.type = stream->stream_type;
 
   code = bits_read(b, 24);
   if (code != 0x000001)
-    return -1;
+    {
+      ts_demux_error(d);
+      return;
+    }
 
-  id = bits_read(b, 8);
+  message.id = bits_read(b, 8);
   len = bits_read(b, 16);
-  printf("pes code %06x, id %02x, len %d\n", code, id, len);
   if (len >= 3)
     {
       marker = bits_read(b, 2);
       scrambling = bits_read(b, 2);
-      priority = bits_read(b, 1);
+      (void) bits_read(b, 1);
       dai = bits_read(b, 1);
       (void) bits_read(b, 2);
-      has_pts = bits_read(b, 1);
-      has_dts = bits_read(b, 1);
+      message.has_pts = bits_read(b, 1);
+      message.has_dts = bits_read(b, 1);
       (void) bits_read(b, 4);
-      has_crc = bits_read(b, 1);
+      (void) bits_read(b, 1);
       (void) bits_read(b, 1);
 
       remains = bits_read(b, 8);
       if (!bits_valid(b) || marker != 0x02 || scrambling || !dai)
-        return -1;
-      len -= 3 + remains;
-      if (has_pts)
         {
-          pts = ts_demux_parse_pts(b);
-          remains -= 5;
-          printf("pts %lu\n", pts);
+          ts_demux_error(d);
+          return;
         }
-      if (has_dts)
-        {
-          dts = ts_demux_parse_pts(b);
-          remains -= 5;
-          printf("dts %lu\n", dts);
-        }
-     bits_read_data(b, NULL, remains);
 
-      printf("optional header %d %d %d %d, crc %d\n", marker, scrambling, priority, dai, has_crc);
+      len -= 3 + remains;
+      if (message.has_pts)
+        {
+          message.pts = ts_demux_parse_pts(b);
+          remains -= 5;
+        }
+      if (message.has_dts)
+        {
+          message.dts = ts_demux_parse_pts(b);
+          remains -= 5;
+        }
+      bits_read_data(b, NULL, remains);
     }
 
   if (!bits_valid(b))
-    return -1;
+    {
+      ts_demux_error(d);
+      return;
+    }
 
-  printf("data %lu, len %u\n", bits_size(b) / 8, len);
-  return 0;
+  bits_get_data(b, &message.data, &message.size);
+  reactor_user_dispatch(&d->user, TS_DEMUX_EVENT_MESSAGE, &message);
 }
 
 static void ts_demux_analyze_stream(ts_demux *d, ts_demux_stream *stream)
@@ -292,7 +297,7 @@ static void ts_demux_analyze_stream(ts_demux *d, ts_demux_stream *stream)
           {
             unit = *(ts_demux_stream_unit **) vector_front(&stream->units);
             bits_set_data(&b, buffer_data(&unit->data), buffer_size(&unit->data));
-            ts_demux_parse_pes(d, stream->stream_type, &b);
+            ts_demux_parse_pes(d, stream, &b);
             vector_erase(&stream->units, 0);
           }
       break;
