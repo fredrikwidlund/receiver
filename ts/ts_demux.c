@@ -134,7 +134,7 @@ void ts_demux_parse_psi_table(ts_demux *d, bits *b, uint8_t *end, uint16_t *tid_
 int ts_demux_parse_pat(ts_demux *d, bits *pat)
 {
   bits table;
-  uint8_t len, tid, ssi, pb, v, current, sn, lsn;
+  uint8_t tid, ssi, pb, v, current, sn, lsn;
   uint16_t s_len, tie;
 
   ts_demux_parse_psi_pointer(d, pat);
@@ -145,6 +145,8 @@ int ts_demux_parse_pat(ts_demux *d, bits *pat)
         break;
       ssi = bits_read(pat, 1);
       pb = bits_read(pat, 1);
+      (void) ssi;
+      (void) pb;
       (void) bits_read(pat, 2);
       (void) bits_read(pat, 2);
       s_len = bits_read(pat, 10);
@@ -183,9 +185,8 @@ void ts_demux_parse_pmt_stream(ts_demux *d, bits *b)
   len =  bits_read(b, 10);
   bits_read_data(b, NULL, len);
 
-
   s = ts_demux_streams_lookup(d, pid, 1);
-  s->type = TS_DEMUX_STREAM_TYPE_ES;
+  s->type = TS_DEMUX_STREAM_TYPE_PES;
   s->stream_type = type;
   printf("type %02x, pid %u, len %u\n", type, pid, len);
 }
@@ -233,6 +234,101 @@ int ts_demux_parse_pmt(ts_demux *d, bits *b)
         break;
     }
 
+  return 0;
+}
+
+int ts_demux_parse_pes_adts(ts_demux *d, bits *b)
+{
+  uint16_t sync;
+  uint8_t v;
+
+  sync = bits_read(b, 12);
+  v = bits_read(b, 1);
+  if (!bits_valid(b))
+    return -1;
+  printf("adts %08x, v %d\n", sync, v);
+  return 0;
+}
+
+int ts_demux_parse_pes_h264(ts_demux *d, bits *b)
+{
+  printf("h264\n");
+  return 0;
+}
+
+uint64_t ts_demux_parse_pts(bits *b)
+{
+  uint64_t pts;
+
+  (void) bits_read(b, 4);
+  pts = bits_read(b, 3);
+  (void) bits_read(b, 1);
+  pts <<= 15;
+  pts += bits_read(b, 15);
+  (void) bits_read(b, 1);
+  pts <<= 15;
+  pts += bits_read(b, 15);
+  (void) bits_read(b, 1);
+
+  return pts;
+}
+
+int ts_demux_parse_pes(ts_demux *d, int type, bits *b)
+{
+  uint64_t pts, dts;
+  uint32_t code;
+  uint16_t len;
+  uint8_t id, marker, scrambling, priority, dai, has_pts, has_dts, has_crc, remains;
+
+  if (type != 0x0f && // adts
+      type != 0x1b)   // h264
+    return -1;
+
+  code = bits_read(b, 24);
+  if (code != 0x000001)
+    return -1;
+
+  id = bits_read(b, 8);
+  len = bits_read(b, 16);
+  printf("pes code %06x, id %02x, len %d\n", code, id, len);
+  if (len >= 3)
+    {
+      marker = bits_read(b, 2);
+      scrambling = bits_read(b, 2);
+      priority = bits_read(b, 1);
+      dai = bits_read(b, 1);
+      (void) bits_read(b, 2);
+      has_pts = bits_read(b, 1);
+      has_dts = bits_read(b, 1);
+      (void) bits_read(b, 4);
+      has_crc = bits_read(b, 1);
+      (void) bits_read(b, 1);
+
+      remains = bits_read(b, 8);
+      if (!bits_valid(b) || marker != 0x02 || scrambling || !dai)
+        return -1;
+      len -= 3 + remains;
+      if (has_pts)
+        {
+          pts = ts_demux_parse_pts(b);
+          remains -= 5;
+          printf("pts %lu\n", pts);
+        }
+      if (has_dts)
+        {
+          dts = ts_demux_parse_pts(b);
+          remains -= 5;
+          printf("dts %lu\n", dts);
+        }
+      bits_read_data(b, NULL, remains);
+
+      printf("optional header %d %d %d %d, crc %d\n", marker, scrambling, priority, dai, has_crc);
+    }
+
+  if (!bits_valid(b))
+    return -1;
+
+  printf("data %lu, len %u\n", bits_size(b) / 8, len);
   return 0;
 }
 
@@ -331,6 +427,19 @@ int ts_demux_stream_analyze(ts_demux *d, ts_demux_stream *s)
       e = ts_demux_parse_pmt(d, &bits);
       u->analyzed = e;
       u->complete = e;
+      break;
+    case TS_DEMUX_STREAM_TYPE_PES:
+      TAILQ_FOREACH(u, &s->units, entries)
+        {
+          if (u->complete && !u->analyzed)
+            {
+              bits_set_data(&bits, buffer_data(&u->data), buffer_size(&u->data));
+              e = ts_demux_parse_pes(d, s->stream_type, &bits);
+              if (e == -1)
+                return -1;
+              u->analyzed = 1;
+            }
+        }
       break;
     }
 

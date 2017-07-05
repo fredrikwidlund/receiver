@@ -15,7 +15,7 @@ enum ts_demux_stream_type
   TS_DEMUX_STREAM_TYPE_UNKNOWN = 0,
   TS_DEMUX_STREAM_TYPE_PAT,
   TS_DEMUX_STREAM_TYPE_PMT,
-  TS_DEMUX_STREAM_TYPE_ES
+  TS_DEMUX_STREAM_TYPE_PES
 };
 
 struct ts_demux_stream_unit
