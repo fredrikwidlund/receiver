@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/queue.h>
@@ -13,13 +14,54 @@
 #include "ts_demux.h"
 #include "ts_demux_adts.h"
 
+typedef struct stream stream;
+struct stream
+{
+  int pid;
+  int fd;
+};
+
 typedef struct state state;
 struct state
 {
   ts_demux demux;
+  vector   streams;
 };
 
-void adts(state *s, ts_demux_message *m)
+void save(state *s, ts_demux_message *m, char *ext)
+{
+  stream **streams, *stream;
+  char path[4096];
+  size_t i, n;
+
+  stream = NULL;
+  streams = vector_data(&s->streams);
+  for (i = 0; i < vector_size(&s->streams); i ++)
+    {
+      if (streams[i]->pid == m->pid)
+        {
+          stream = streams[i];
+          break;
+        }
+    }
+
+  if (!stream)
+    {
+      (void) snprintf(path, sizeof path, "pid-%d.%s", m->pid, ext);
+      stream = malloc(sizeof *stream);
+      stream->pid = m->pid;
+      stream->fd = open(path, O_WRONLY | O_CREAT, 0644);
+      if (stream->fd == -1)
+        err(1, "open");
+      vector_push_back(&s->streams, &stream);
+    }
+
+  n = write(stream->fd, m->data, m->size);
+  if (n != m->size)
+    err(1, "write");
+}
+
+void aac(state *s, ts_demux_message *m)
 {
   ts_demux_adts_state adts;
   uint8_t *aac;
@@ -64,12 +106,15 @@ void event(void *data, int type, void *message)
       switch (m->type)
         {
         case 0x0f:
-          adts(s, m);
+          save(s, m, "aac");
+          aac(s, m);
           break;
         case 0x1b:
+          save(s, m, "h264");
           h264(s, m);
           break;
         default:
+          save(s, m, "raw");
           (void) fprintf(stderr, "[unknown]\n");
           break;
         }
@@ -80,9 +125,11 @@ void event(void *data, int type, void *message)
 int main()
 {
   state s;
-  char data[1048576];
+  char data[1046576];
   ssize_t n;
 
+  s = (state) {0};
+  vector_construct(&s.streams, sizeof (stream));
   ts_demux_open(&s.demux, event, &s);
 
   while (1)

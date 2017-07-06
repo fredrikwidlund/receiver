@@ -209,7 +209,7 @@ static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, int rai, bi
   ts_demux_message message;
   uint32_t code;
   uint16_t len;
-  uint8_t marker, scrambling, dai, remains;
+  uint8_t marker, scrambling, remains;
 
   message = (ts_demux_message) {0};
   message.pid = stream->pid;
@@ -230,7 +230,7 @@ static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, int rai, bi
       marker = bits_read(b, 2);
       scrambling = bits_read(b, 2);
       (void) bits_read(b, 1);
-      dai = bits_read(b, 1);
+      (void) bits_read(b, 1);
       (void) bits_read(b, 2);
       message.has_pts = bits_read(b, 1);
       message.has_dts = bits_read(b, 1);
@@ -239,7 +239,7 @@ static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, int rai, bi
       (void) bits_read(b, 1);
 
       remains = bits_read(b, 8);
-      if (!bits_valid(b) || marker != 0x02 || scrambling || !dai)
+      if (!bits_valid(b) || marker != 0x02 || scrambling)
         {
           ts_demux_error(d);
           return;
