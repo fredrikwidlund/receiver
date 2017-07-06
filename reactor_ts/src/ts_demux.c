@@ -14,7 +14,8 @@ static void ts_demux_analyze_stream(ts_demux *, ts_demux_stream *);
 
 static void ts_demux_error(ts_demux *d)
 {
-  (void) fprintf(stderr, "error\n");
+  reactor_user_dispatch(&d->user, TS_DEMUX_EVENT_ERROR, NULL);
+  d->state = TS_DEMUX_STATE_ERROR;
 }
 
 static ts_demux_stream *ts_demux_streams_new(ts_demux *d, int pid)
@@ -203,15 +204,17 @@ static uint64_t ts_demux_parse_pts(bits *b)
   return pts;
 }
 
-static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, bits *b)
+static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, int rai, bits *b)
 {
   ts_demux_message message;
   uint32_t code;
   uint16_t len;
   uint8_t marker, scrambling, dai, remains;
 
+  message = (ts_demux_message) {0};
   message.pid = stream->pid;
   message.type = stream->stream_type;
+  message.rai = rai;
 
   code = bits_read(b, 24);
   if (code != 0x000001)
@@ -222,7 +225,7 @@ static void ts_demux_parse_pes(ts_demux *d, ts_demux_stream *stream, bits *b)
 
   message.id = bits_read(b, 8);
   len = bits_read(b, 16);
-  if (len >= 3)
+  if (!len || len >= 3)
     {
       marker = bits_read(b, 2);
       scrambling = bits_read(b, 2);
@@ -297,7 +300,7 @@ static void ts_demux_analyze_stream(ts_demux *d, ts_demux_stream *stream)
           {
             unit = *(ts_demux_stream_unit **) vector_front(&stream->units);
             bits_set_data(&b, buffer_data(&unit->data), buffer_size(&unit->data));
-            ts_demux_parse_pes(d, stream, &b);
+            ts_demux_parse_pes(d, stream, unit->rai, &b);
             vector_erase(&stream->units, 0);
           }
       break;
@@ -415,6 +418,15 @@ void ts_demux_data(ts_demux *d, void *data, size_t size)
 
 void ts_demux_eof(ts_demux *d)
 {
+  ts_demux_stream *stream;
+  size_t i;
+
   if (d->state == TS_DEMUX_STATE_OPEN)
     d->state = TS_DEMUX_STATE_EOF;
+
+  for (i = 0; i < vector_size(&d->streams); i ++)
+    {
+      stream = *(ts_demux_stream **) vector_at(&d->streams, i);
+      ts_demux_analyze_stream(d, stream);
+    }
 }

@@ -1,5 +1,5 @@
 PROG    = ts_demux
-OBJS    = src/main.o src/ts_demux.o src/bits.o
+OBJS    = src/main.o src/ts_demux.o src/ts_demux_adts.o src/bits.o
 CFLAGS  = -Wall -pedantic -g -Isrc -O3
 LDFLAGS = -lreactor -ldynamic
 
